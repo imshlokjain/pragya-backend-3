@@ -1,0 +1,52 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    container_name: pragya-postgres
+    environment:
+      POSTGRES_USER: pragya
+      POSTGRES_PASSWORD: pragya
+      POSTGRES_DB: pragya
+    ports:
+      - "5432:5432"
+    volumes:
+      - pragya_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U pragya"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: pragya-redis
+    ports:
+      - "6379:6379"
+
+  backend:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/Dockerfile
+    container_name: pragya-backend
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+psycopg2://pragya:pragya@postgres:5432/pragya
+      REDIS_URL: redis://redis:6379/0
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    volumes:
+      - ./backend:/app/backend
+      - ./alembic.ini:/app/alembic.ini
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn backend.main:app --host 0.0.0.0 --port 8000 --reload"
+
+volumes:
+  pragya_pgdata:
