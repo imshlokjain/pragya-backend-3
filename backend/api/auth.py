@@ -17,7 +17,7 @@ router = APIRouter(
 # Replace this with a users table for production.
 USERS = {
     "admin": {
-        "password_hash": "$2b$12$2BbHsChKN9/NKrt.gcEeVe/s6pdVP9lV9a6BFwBY9eE4x/CUcZkzG",
+        "password_hash": "$2b$12$QGayEa/.K4f9YYcX4oI4xuqIMwIh2UDC7LnuxWfKuZabj06BaBQWe",
         "role": "ADMIN",
     },
     "operator": {

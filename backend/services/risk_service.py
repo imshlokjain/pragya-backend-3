@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from backend.database.models import RiskPrediction, Zone
 from backend.services import feature_service
-from backend.services.ml_predictor import predictor
 from backend.services import zone_service
+from backend.services.river_forecast_service import get_river_forecast
 
 
 def _prediction_response(
@@ -30,14 +30,30 @@ def _prediction_response(
     }
 
 
-def calculate_risk(
+def _calculate_prediction(
     db: Session,
     zone_id: str,
 ) -> Optional[dict]:
     """
-    Calculate current risk without persisting it.
+    Calculate flood risk using:
+
+    - Real database observations
+    - Real ML river forecast
+    - River warning/danger thresholds
+    - Rainfall
+    - River level trend
     """
 
+    # Get real ML river forecast
+    forecast = get_river_forecast(
+        db,
+        zone_id,
+    )
+
+    if forecast is None:
+        return None
+
+    # Get current backend feature snapshot
     features = feature_service.get_feature_snapshot(
         db,
         zone_id,
@@ -46,7 +62,154 @@ def calculate_risk(
     if features is None:
         return None
 
-    prediction = predictor.predict(features)
+    current_level = forecast["current_river_level"]
+    predicted_level = forecast["predicted_river_level"]
+
+    river_data = features["river"]
+    rainfall_data = features["rainfall"]
+
+    warning_level = river_data["warning_level"]
+    danger_level = river_data["danger_level"]
+
+    rainfall_mm = (
+        rainfall_data["rainfall_mm"] or 0.0
+    )
+
+    river_change = (
+        river_data["river_level_change"] or 0.0
+    )
+
+    # --------------------------------------------------
+    # RISK SCORE
+    # --------------------------------------------------
+
+    risk_score = 0.0
+    drivers = []
+
+    # Predicted river level vs thresholds
+    if danger_level is not None:
+
+        if predicted_level >= danger_level:
+            risk_score += 60
+            drivers.append(
+                "Predicted river level exceeds danger level"
+            )
+
+        elif (
+            warning_level is not None
+            and predicted_level >= warning_level
+        ):
+            risk_score += 40
+            drivers.append(
+                "Predicted river level exceeds warning level"
+            )
+
+        elif predicted_level >= danger_level - 1:
+            risk_score += 25
+            drivers.append(
+                "Predicted river level is approaching danger level"
+            )
+
+    # River currently rising
+    if river_change > 0:
+        risk_score += 15
+        drivers.append(
+            "River level is rising"
+        )
+
+    # Predicted level higher than current level
+    if predicted_level > current_level:
+        risk_score += 10
+        drivers.append(
+            "River level is forecast to rise"
+        )
+
+    # Rainfall contribution
+    if rainfall_mm >= 50:
+        risk_score += 20
+        drivers.append(
+            "Heavy rainfall detected"
+        )
+
+    elif rainfall_mm >= 20:
+        risk_score += 10
+        drivers.append(
+            "Moderate rainfall detected"
+        )
+
+    # Keep score between 0 and 100
+    risk_score = min(
+        risk_score,
+        100.0,
+    )
+
+    # --------------------------------------------------
+    # RISK CATEGORY
+    # --------------------------------------------------
+
+    if risk_score >= 75:
+        risk_category = "CRITICAL"
+
+    elif risk_score >= 50:
+        risk_category = "HIGH"
+
+    elif risk_score >= 25:
+        risk_category = "MEDIUM"
+
+    else:
+        risk_category = "LOW"
+
+    # --------------------------------------------------
+    # TREND
+    # --------------------------------------------------
+
+    if predicted_level > current_level:
+        trend = "RISING"
+
+    elif predicted_level < current_level:
+        trend = "FALLING"
+
+    else:
+        trend = "STABLE"
+
+    # --------------------------------------------------
+    # CONFIDENCE
+    # --------------------------------------------------
+
+    confidence = 0.85
+
+    return {
+        "risk_score": round(
+            risk_score,
+            2,
+        ),
+        "risk_category": risk_category,
+        "confidence": confidence,
+        "forecast_horizon_hours": forecast[
+            "forecast_horizon_hours"
+        ],
+        "trend": trend,
+        "model_version": "assam-river-rf-v1",
+        "is_prototype": False,
+        "drivers": drivers,
+    }
+
+
+def calculate_risk(
+    db: Session,
+    zone_id: str,
+) -> Optional[dict]:
+    """
+    Calculate current risk without saving it.
+    """
+
+    prediction = _calculate_prediction(
+        db,
+        zone_id,
+    )
+
+    if prediction is None:
+        return None
 
     return _prediction_response(
         zone_id=zone_id,
@@ -59,29 +222,24 @@ def _resolve_zone_for_storage(
     zone_id: str,
 ) -> Optional[Zone]:
     """
-    Resolve both supported zone identifiers:
-
-    - Legacy codes such as ZONE_01
-    - Real PostgreSQL UUID zone IDs
+    Resolve both legacy zone codes and UUIDs.
     """
 
-    # First try the legacy ZONE_XX code.
-    zone = zone_service.zone_exists_by_code(
+    code = zone_service.resolve_zone_code(
         db,
         zone_id,
-        {
-            "ZONE_01": "Riverside North",
-            "ZONE_02": "Market District",
-            "ZONE_03": "Lowland South",
-            "ZONE_04": "Upstream Colony",
-            "ZONE_05": "Embankment East",
-        },
     )
 
-    if zone is not None:
-        return zone
+    if code is not None:
+        zone = zone_service.zone_exists_by_code(
+            db,
+            code,
+            zone_service.KNOWN_ZONES,
+        )
 
-    # Then try a real UUID.
+        if zone is not None:
+            return zone
+
     return zone_service.get_zone(
         db,
         zone_id,
@@ -93,20 +251,16 @@ def save_risk_prediction(
     zone_id: str,
 ) -> Optional[dict]:
     """
-    Calculate current risk and persist the prediction.
-
-    Supports both legacy zone codes and real UUID zone IDs.
+    Calculate risk and save it in risk_predictions.
     """
 
-    features = feature_service.get_feature_snapshot(
+    prediction = _calculate_prediction(
         db,
         zone_id,
     )
 
-    if features is None:
+    if prediction is None:
         return None
-
-    prediction = predictor.predict(features)
 
     zone = _resolve_zone_for_storage(
         db,
@@ -130,7 +284,9 @@ def save_risk_prediction(
         model_version=prediction["model_version"],
         feature_snapshot_id=None,
         is_prototype=(
-            1 if prediction["is_prototype"] else 0
+            1
+            if prediction["is_prototype"]
+            else 0
         ),
     )
 
@@ -151,8 +307,6 @@ def get_risk(
 ) -> Optional[dict]:
     """
     Read-only current risk calculation.
-
-    Does not create a risk_predictions row.
     """
 
     return calculate_risk(
@@ -166,9 +320,8 @@ def get_district_risk(
     district_id: str,
 ) -> list[dict]:
     """
-    Calculate current risk for every zone in a district.
-
-    Read-only. Does not persist predictions.
+    Calculate current risk for every zone
+    in a district.
     """
 
     zones = (
@@ -182,6 +335,7 @@ def get_district_risk(
     results = []
 
     for zone in zones:
+
         result = calculate_risk(
             db,
             str(zone.id),
@@ -198,9 +352,6 @@ def get_risk_history(
     zone_id: str,
     limit: int = 20,
 ) -> Optional[list[dict]]:
-    """
-    Return persisted predictions for a zone.
-    """
 
     zone = _resolve_zone_for_storage(
         db,
@@ -225,6 +376,7 @@ def get_risk_history(
     results = []
 
     for row in rows:
+
         results.append(
             {
                 "zone_id": zone_id,

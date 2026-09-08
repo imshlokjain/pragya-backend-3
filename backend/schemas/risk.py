@@ -13,6 +13,7 @@ class RiskDriver(BaseModel):
 
 class RiskPredictionOut(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
+
     zone_id: str
     risk_score: float
     risk_category: str
@@ -21,7 +22,7 @@ class RiskPredictionOut(BaseModel):
     trend: str
     model_version: str
     is_prototype: bool
-    drivers: List[RiskDriver]
+    drivers: List[str]
     prediction_time: datetime
 
 
@@ -67,6 +68,7 @@ class ScenarioRequest(BaseModel):
 
 class ScenarioResult(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
+
     scenario_id: str
     zone_id: str
     baseline_risk: float
@@ -92,6 +94,7 @@ class SatelliteObservationOut(BaseModel):
 
 class FloodDetectionOut(BaseModel):
     model_config = ConfigDict(protected_namespaces=())
+
     id: str
     zone_id: str
     before_scene_id: Optional[str]

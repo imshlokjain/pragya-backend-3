@@ -1,0 +1,165 @@
+import pandas as pd
+
+from sklearn.model_selection import train_test_split
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.metrics import (
+    accuracy_score,
+    classification_report,
+    confusion_matrix,
+)
+
+from xgboost import XGBClassifier
+import joblib
+
+
+# --------------------------------------------------
+# Load dataset
+# --------------------------------------------------
+
+DATA_PATH = "ml/data/raw/flood_risk_india.csv"
+
+df = pd.read_csv(DATA_PATH)
+
+print("Dataset shape:", df.shape)
+print("\nTarget distribution:")
+print(df["Flood Occurred"].value_counts())
+
+
+# --------------------------------------------------
+# Features and target
+# --------------------------------------------------
+
+X = df.drop(columns=["Flood Occurred"])
+y = df["Flood Occurred"]
+
+
+# --------------------------------------------------
+# Categorical and numerical columns
+# --------------------------------------------------
+
+categorical_features = [
+    "Land Cover",
+    "Soil Type",
+]
+
+numerical_features = [
+    column
+    for column in X.columns
+    if column not in categorical_features
+]
+
+
+# --------------------------------------------------
+# Preprocessing
+# --------------------------------------------------
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        (
+            "cat",
+            OneHotEncoder(handle_unknown="ignore"),
+            categorical_features,
+        ),
+        (
+            "num",
+            "passthrough",
+            numerical_features,
+        ),
+    ]
+)
+
+
+# --------------------------------------------------
+# Train-test split
+# --------------------------------------------------
+
+X_train, X_test, y_train, y_test = train_test_split(
+    X,
+    y,
+    test_size=0.2,
+    random_state=42,
+    stratify=y,
+)
+
+
+# --------------------------------------------------
+# XGBoost model
+# --------------------------------------------------
+
+model = XGBClassifier(
+    n_estimators=200,
+    max_depth=6,
+    learning_rate=0.05,
+    subsample=0.8,
+    colsample_bytree=0.8,
+    random_state=42,
+    eval_metric="logloss",
+)
+
+
+# --------------------------------------------------
+# Full pipeline
+# --------------------------------------------------
+
+pipeline = Pipeline(
+    steps=[
+        ("preprocessor", preprocessor),
+        ("model", model),
+    ]
+)
+
+
+# --------------------------------------------------
+# Train
+# --------------------------------------------------
+
+print("\nTraining XGBoost model...")
+
+pipeline.fit(X_train, y_train)
+
+
+# --------------------------------------------------
+# Predict
+# --------------------------------------------------
+
+predictions = pipeline.predict(X_test)
+
+accuracy = accuracy_score(
+    y_test,
+    predictions,
+)
+
+print("\nAccuracy:", round(accuracy, 4))
+
+print("\nClassification Report:")
+print(
+    classification_report(
+        y_test,
+        predictions,
+    )
+)
+
+print("\nConfusion Matrix:")
+print(
+    confusion_matrix(
+        y_test,
+        predictions,
+    )
+)
+
+
+# --------------------------------------------------
+# Save model
+# --------------------------------------------------
+
+MODEL_PATH = "ml/models/flood_risk_xgboost.joblib"
+
+joblib.dump(
+    pipeline,
+    MODEL_PATH,
+)
+
+print(f"\nModel saved successfully: {MODEL_PATH}")
+
