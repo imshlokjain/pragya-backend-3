@@ -18,6 +18,7 @@ from backend.api import (
 from backend.database.models import AuditEvent
 from backend.database.session import SessionLocal, get_db
 from backend.core.security import decode_access_token
+from backend.core.config import settings
 from backend.services import zone_service
 
 
@@ -33,7 +34,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[origin.strip() for origin in settings.cors_origins.split(",") if origin.strip()],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

@@ -92,11 +92,7 @@ def handle_chat(
         river = call("get_river_level", tools.get_river_level, db, zone_id)
         satellite = call("get_satellite_evidence", tools.get_satellite_evidence, db, zone_id)
 
-        drivers_text = "; ".join(
-            f"{d['feature']} ({d['direction'].replace('_', ' ').lower()}, "
-            f"contributes {d['contribution']})"
-            for d in risk["drivers"]
-        )
+        drivers_text = "; ".join(_format_driver(driver) for driver in risk["drivers"])
         prototype_note = "prototype" if risk["is_prototype"] else "validated"
         answer = (
             f"This zone is currently classified {risk['risk_category']} "
@@ -133,6 +129,16 @@ def _needs_zone_response(tool_calls):
         tool_calls,
         evidence=[],
     )
+
+
+def _format_driver(driver) -> str:
+    """Keep chat compatible with both the current string drivers and future SHAP-style objects."""
+    if isinstance(driver, dict):
+        feature = driver.get("feature", "risk signal")
+        direction = str(driver.get("direction", "observed")).replace("_", " ").lower()
+        contribution = driver.get("contribution")
+        return f"{feature} ({direction}{f', contributes {contribution}' if contribution is not None else ''})"
+    return str(driver)
 
 
 def _error_response(error, tool_calls):
