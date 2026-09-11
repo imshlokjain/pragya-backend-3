@@ -105,21 +105,60 @@ def handle_chat(
     if intent == "actions":
         sop = call("search_sop", tools.search_sop, message, {"zone_id": zone_id, "district_id": district_id})
         risk = call("get_current_risk", tools.get_current_risk, db, zone_id) if zone_id else None
-        answer = (
-            "SOP retrieval isn't wired up yet (Phase 4), so I can't cite a specific clause. "
-            "Once it is, this will return the matched SOP section/page and a draft response "
-            "plan labelled 'DRAFT — HUMAN REVIEW REQUIRED'."
-        )
+
+        clauses = sop.get("clauses", [])
+        sources = sop.get("sources", [])
+
+        if clauses:
+            action_lines = []
+            for c in clauses:
+                action_lines.append(f"• **{c.get('title', 'Action Protocol')}**: {c.get('content')}")
+
+            risk_header = ""
+            if risk and not "error" in risk:
+                risk_header = f" for {zone_id} (Risk: **{risk.get('risk_category', 'ASSESSED')}**, Score: {risk.get('risk_score', 0)}/100)"
+
+            citations_text = ", ".join(sources) if sources else "NDMA SOP Framework"
+
+            answer = (
+                f"🚨 **INCIDENT ACTION PLAN**{risk_header}\n\n"
+                f"**Mandated Directives**:\n"
+                + "\n".join(action_lines) +
+                f"\n\n**SOP Citations**: {citations_text}\n\n"
+                f"⚖️ *DRAFT ACTION PLAN — HUMAN REVIEW & DISTRICT MAGISTRATE SIGN-OFF REQUIRED BEFORE DEPLOYMENT.*"
+            )
+        else:
+            answer = (
+                "No specific SOP section directly matched your query. Recommended standard protocol: "
+                "continuous river monitoring, drainage inspections, and alerting frontline NDRF rescue teams.\n\n"
+                "⚖️ *HUMAN REVIEW REQUIRED.*"
+            )
+
         evidence = [sop] + ([risk] if risk else [])
         return _build_response(answer, tool_calls, evidence=evidence)
 
+    # General / Policy inquiry fallback — query RAG documents
+    rag_docs = call("search_rag_documents", tools.search_rag_documents, message)
+    if rag_docs.get("status") == "FOUND":
+        chunks = rag_docs.get("chunks", [])
+        sources = rag_docs.get("sources", [])
+        context_text = "\n\n".join(f"[{c.get('document')} p.{c.get('page')}]: {c.get('content')[:300]}..." for c in chunks)
+        citations_text = ", ".join(sources)
+        answer = (
+            f"Grounding information from disaster management documents:\n\n"
+            f"{context_text}\n\n"
+            f"**Citations**: {citations_text}"
+        )
+        return _build_response(answer, tool_calls, evidence=[rag_docs])
+
     return _build_response(
-        "I can answer questions about zone risk, rainfall, river levels, and what-if "
-        "rainfall scenarios. SOP-based recommendations are coming in a later phase. Try "
-        "asking why a specific zone is at risk, or what happens if rainfall increases by 30%.",
+        "I can answer questions about zone risk, rainfall, river levels, what-if "
+        "rainfall scenarios, and NDMA SOP action plans. Try "
+        "asking 'What action should we take?', 'Why is this zone at risk?', or 'What if rainfall increases by 30%?'.",
         tool_calls,
         evidence=[],
     )
+
 
 
 def _needs_zone_response(tool_calls):

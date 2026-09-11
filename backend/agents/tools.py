@@ -115,13 +115,77 @@ def search_sop(
     context: Optional[dict] = None,
 ) -> dict:
     """
-    Search SOPs through the provider interface.
-
-    The real RAG system can replace sop_provider
-    without changing the chat orchestrator.
+    Search SOPs through the RAG pipeline's SOP collection,
+    falling back seamlessly to local prototype SOP provider.
     """
+    try:
+        from rag.api.router import get_sop_pipeline
+        import asyncio
+        sop_pipe = get_sop_pipeline()
+
+        # Check vector store
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    results = pool.submit(asyncio.run, sop_pipe.search(query=query, top_k=4)).result()
+            else:
+                results = loop.run_until_complete(sop_pipe.search(query=query, top_k=4))
+        except Exception:
+            results = []
+
+        if results:
+            return {
+                "query": query,
+                "context": context or {},
+                "status": "FOUND",
+                "clauses": [
+                    {
+                        "id": f"SOP-RAG-{i+1}",
+                        "title": r.get("section") or r.get("document", "NDMA SOP Manual"),
+                        "content": r.get("content", ""),
+                        "source": f"{r.get('document', 'NDMA SOP')} (Page {r.get('page', 1)})",
+                    }
+                    for i, r in enumerate(results)
+                ],
+                "sources": list(set(f"{r.get('document', 'SOP')} p.{r.get('page', 1)}" for r in results)),
+                "note": "Retrieved from ChromaDB NDMA SOP Vector Store",
+            }
+    except Exception:
+        pass
 
     return sop_provider.search(
         query=query,
         context=context,
     )
+
+
+def search_rag_documents(
+    query: str,
+) -> dict:
+    """
+    Retrieve grounding context from general RAG documents (policy, manuals, surveys).
+    """
+    try:
+        from rag.api.router import get_pipeline
+        pipeline = get_pipeline()
+        retrieval = pipeline.retrieve(question=query, top_k=3)
+        if retrieval and retrieval.chunks:
+            return {
+                "status": "FOUND",
+                "chunks": [
+                    {
+                        "document": sc.chunk.document_name,
+                        "page": sc.chunk.page_number,
+                        "content": sc.chunk.content,
+                        "score": sc.score,
+                    }
+                    for sc in retrieval.chunks
+                ],
+                "sources": list(set(f"{sc.chunk.document_name} (p.{sc.chunk.page_number})" for sc in retrieval.chunks)),
+            }
+    except Exception:
+        pass
+    return {"status": "NO_DOCUMENTS"}
+

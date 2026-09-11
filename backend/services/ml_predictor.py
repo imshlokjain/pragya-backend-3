@@ -3,7 +3,15 @@ import joblib
 import pandas as pd
 
 
-MODEL_PATH = "ml/models/assam_river_model.pkl"
+from pathlib import Path
+
+_PKG_ROOT = Path(__file__).resolve().parents[2]
+_POSSIBLE_PATHS = [
+    _PKG_ROOT / "ml" / "models" / "assam_river_model.pkl",
+    Path("ml/models/assam_river_model.pkl"),
+    Path("pragya-backend-3/ml/models/assam_river_model.pkl"),
+]
+MODEL_PATH = next((p for p in _POSSIBLE_PATHS if p.exists()), _POSSIBLE_PATHS[0])
 
 
 class AssamRiverPredictor:

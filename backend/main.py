@@ -55,6 +55,27 @@ app.include_router(satellite.router)
 app.include_router(flood.router)
 app.include_router(features.router)
 
+# ---------------------------------------------------------
+# RAG & SOP Decision Intelligence Router
+# ---------------------------------------------------------
+import sys
+from pathlib import Path
+import logging
+
+logger = logging.getLogger(__name__)
+
+WORKSPACE_ROOT = Path(__file__).resolve().parents[2]
+if str(WORKSPACE_ROOT) not in sys.path:
+    sys.path.insert(0, str(WORKSPACE_ROOT))
+
+try:
+    from rag.api.router import router as rag_router
+    app.include_router(rag_router, prefix="/rag", tags=["RAG & SOP Intelligence"])
+    logger.info("RAG and SOP Decision Intelligence Pipeline mounted at /rag")
+except Exception as exc:
+    logger.warning(f"RAG router could not be mounted: {exc}")
+
+
 
 # ---------------------------------------------------------
 # Audit Middleware
