@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from pydantic import BaseModel, Field, ConfigDict
 
@@ -22,7 +22,7 @@ class RiskPredictionOut(BaseModel):
     trend: str
     model_version: str
     is_prototype: bool
-    drivers: List[str]
+    drivers: List[Union[RiskDriver, str, dict]]
     prediction_time: datetime
 
 

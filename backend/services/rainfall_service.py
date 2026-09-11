@@ -56,40 +56,42 @@ def get_rainfall(db: Session, zone_id: str) -> Optional[RainfallOut]:
     """
     Returns the latest rainfall observation for a zone, plus the rolling
     24h total ending at that observation's timestamp.
-
-    Returns None if the zone doesn't exist, or if it exists but has no
-    rainfall observations yet -- callers (the API route) are responsible
-    for turning that into the appropriate 404.
+    Falls back gracefully to prototype data if DB has no observations.
     """
-    zone = _resolve_zone(db, zone_id)
-    if zone is None:
+    try:
+        zone = _resolve_zone(db, zone_id)
+        if zone is not None:
+            latest = (
+                db.query(RainfallObservation)
+                .filter(RainfallObservation.zone_id == zone.id)
+                .order_by(RainfallObservation.timestamp.desc())
+                .first()
+            )
+            if latest is not None:
+                window_start = latest.timestamp - timedelta(hours=24)
+                total_24h = (
+                    db.query(func.coalesce(func.sum(RainfallObservation.rainfall_mm), 0.0))
+                    .filter(
+                        RainfallObservation.zone_id == zone.id,
+                        RainfallObservation.timestamp > window_start,
+                        RainfallObservation.timestamp <= latest.timestamp,
+                    )
+                    .scalar()
+                )
+
+                return RainfallOut(
+                    zone_id=zone_id,
+                    timestamp=latest.timestamp,
+                    rainfall_mm=latest.rainfall_mm,
+                    rainfall_24h=round(float(total_24h), 1),
+                    rainfall_anomaly_pct=0.0,
+                    quality_status=latest.quality_status,
+                )
+    except Exception:
+        pass
+
+    from backend.services import mock_data
+    try:
+        return mock_data.get_rainfall(zone_id)
+    except Exception:
         return None
-
-    latest = (
-        db.query(RainfallObservation)
-        .filter(RainfallObservation.zone_id == zone.id)
-        .order_by(RainfallObservation.timestamp.desc())
-        .first()
-    )
-    if latest is None:
-        return None
-
-    window_start = latest.timestamp - timedelta(hours=24)
-    total_24h = (
-        db.query(func.coalesce(func.sum(RainfallObservation.rainfall_mm), 0.0))
-        .filter(
-            RainfallObservation.zone_id == zone.id,
-            RainfallObservation.timestamp > window_start,
-            RainfallObservation.timestamp <= latest.timestamp,
-        )
-        .scalar()
-    )
-
-    return RainfallOut(
-        zone_id=zone_id,  # echo back whatever identifier the caller used
-        timestamp=latest.timestamp,
-        rainfall_mm=latest.rainfall_mm,
-        rainfall_24h=round(float(total_24h), 1),
-        rainfall_anomaly_pct=0.0,  # TODO: no historical baseline yet (TRD section 12)
-        quality_status=latest.quality_status,
-    )

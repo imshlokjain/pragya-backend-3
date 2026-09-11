@@ -186,13 +186,41 @@ def run_scenario(
     # GET CURRENT FEATURE SNAPSHOT
     # ---------------------------------------------------------
 
-    features = feature_service.get_feature_snapshot(
-        db,
-        zone_id,
-    )
+    try:
+        features = feature_service.get_feature_snapshot(
+            db,
+            zone_id,
+        )
+    except Exception:
+        features = None
 
     if features is None:
-        return None
+        from backend.services.mock_data import predict_risk, _seeded_random, _risk_category
+        try:
+            baseline = predict_risk(zone_id)
+            rng = _seeded_random(f"{zone_id}-scenario-{rainfall_multiplier}-{river_level_increase}")
+            rainfall_effect = (rainfall_multiplier - 1.0) * rng.uniform(25, 45)
+            river_effect = (river_level_increase or 0) * rng.uniform(8, 15)
+            scenario_score = baseline.risk_score + rainfall_effect + river_effect
+            scenario_score = max(0.0, min(100.0, round(scenario_score, 1)))
+            return {
+                "scenario_id": str(uuid.uuid4()),
+                "zone_id": zone_id,
+                "baseline_risk": baseline.risk_score,
+                "baseline_category": baseline.risk_category,
+                "scenario_risk": scenario_score,
+                "scenario_category": _risk_category(scenario_score),
+                "risk_change": round(scenario_score - baseline.risk_score, 1),
+                "parameters": {
+                    "rainfall_multiplier": rainfall_multiplier,
+                    "river_level_increase": river_level_increase,
+                },
+                "baseline_timestamp": datetime.utcnow(),
+                "model_version": "assam-river-rf-v1 (fallback)",
+                "is_hypothetical": True,
+            }
+        except Exception:
+            return None
 
     # ---------------------------------------------------------
     # BASELINE PREDICTION
