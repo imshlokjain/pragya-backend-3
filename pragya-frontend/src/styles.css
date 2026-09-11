@@ -270,6 +270,15 @@ button {
   gap: 22px;
 }
 
+.dashboard-grid.single-column {
+  grid-template-columns: 1fr;
+}
+
+.main-column.full-width {
+  width: 100%;
+  max-width: 100%;
+}
+
 .main-column,
 .side-column {
   display: flex;

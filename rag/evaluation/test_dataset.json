@@ -1,0 +1,32 @@
+[
+    {
+        "question": "What was India's GDP growth rate in 2024-25?",
+        "expected_document": "Economic Survey 2025-26",
+        "expected_page": 3,
+        "expected_keywords": ["GDP", "growth", "percent"]
+    },
+    {
+        "question": "What was the unemployment rate in Punjab?",
+        "expected_document": "Economic Survey 2025-26",
+        "expected_page": 5,
+        "expected_keywords": ["unemployment", "Punjab", "percent"]
+    },
+    {
+        "question": "What is the literacy rate according to the census?",
+        "expected_document": "Census Report",
+        "expected_page": 10,
+        "expected_keywords": ["literacy", "rate", "percent"]
+    },
+    {
+        "question": "How much was allocated for the education budget?",
+        "expected_document": "Union Budget 2025-26",
+        "expected_page": 15,
+        "expected_keywords": ["education", "budget", "crore", "allocation"]
+    },
+    {
+        "question": "What are the key infrastructure projects planned?",
+        "expected_document": "Infrastructure Report",
+        "expected_page": 8,
+        "expected_keywords": ["infrastructure", "projects", "planned"]
+    }
+]
